@@ -1,80 +1,91 @@
+"""
+client
+"""
 import string
 import random
-from argon2 import PasswordHasher
-import sympy
 from socket import *
+from gmssl import sm3, func
+import sympy
 
-def get_random_strui(number,len_min,len_max):#参数为个数和长度范围
-    number_of_strings = number
-    ui_list=[]
-    for x in range(number_of_strings):
-        length_of_string = random.randint(len_min, len_max)
-        ui_list.append(''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for _ in range(length_of_string)))
-    return ui_list
 
-#生成随机的password
-def get_random_strpi(number,len_min,len_max):
-    number_of_strings = number
-    pi_list = []
-    for x in range(number_of_strings):
-        length_of_string = random.randint(len_min, len_max)
-        pi_list.append(''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for _ in range(length_of_string)))
-    return pi_list
-
-#将uid和password合并到一块方便哈希
-def get_random_uipi(number,len_min1,len_max1,len_min2,len_max2):
-    ui=get_random_strui(number,len_min1,len_max1)
-    pi = get_random_strpi(number,len_min2,len_max2)
-    up_list=[]
-    for i in range(number):
-        up_list.append(ui[i]+pi[i])
-    return up_list
-
-def msg2int(msg):
-    msg_int=[]
+def msg_to_int(msg):
+    msg_int = []
     for j in msg:
 
-        my_int=0
-        count=1
+        my_int = 0
+        count = 1
         for i in j:
-            temp=ord(i)*count
-            count=count+1
-            my_int=my_int+temp
+            temp = ord(i) * count
+            count = count + 1
+            my_int = my_int + temp
         msg_int.append(my_int)
     return msg_int
 
-if __name__=='__main__':
+
+# 生成随机的name和password
+def user_u_p(n, u_low, u_high, p_low, p_high):
+    """
+    :param n: 用户个数
+    :param u_low: user name长度的最小值
+    :param u_high: user name长度的最大值
+    :param p_low: password长度的最小值
+    :param p_high: password长度的最大值
+    :return: u_p_list
+    """
+    u_list = []
+    for x in range(n):
+        len_u = random.randint(u_low, u_high)
+        u_list.append(''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for _ in range(len_u)))
+
+    p_list = []
+    for x in range(n):
+        len_p = random.randint(p_low, p_high)
+        p_list.append(''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for _ in range(len_p)))
+
+    u_p_list = []
+    for i in range(n):
+        u_p_list.append(u_list[i] + p_list[i])
+    return u_p_list
+
+
+if __name__ == '__main__':
+    print("Client...")
     while 1:
-        #获得ID
+        # 建立连接
         client = socket(AF_INET, SOCK_STREAM)
         client.connect(('127.0.0.1', 12301))
-        ph = PasswordHasher()
+
+        # user input name and password (u,p)
+        # * client generate ephemeral secret key：a
         a = sympy.randprime(10 ** 2, 10 ** 3)
-        #随机情况
-        up = get_random_uipi(1, 4, 6, 6, 9)
-        myhash = ph.hash(up[0])[31:]
-        k = myhash[:2]
-        h = msg2int([myhash])
-        v = pow(h[0], a)
-        #测试泄露情况下的代码
+        # * client compute key-value (k,p)
+        u_p = user_u_p(1, 4, 6, 6, 9)
+        # 未泄露情况下的代码
         '''
-        test_up='xyK88tsD3XBBI3'
-        testup_hash=ph.hash(test_up)[54:]
-        k = testup_hash[:2]
-        h = msg2int([testup_hash])
+        h = sm3.sm3_hash(func.bytes_to_list(bytes(str(u_p[0]), encoding='utf-8')))[31:]
+        k = h[:2]
+        h = msg_to_int([h])
         v = pow(h[0], a)
         '''
-        sdata=k+str(v)
+        # 泄露情况下的代码
+        u_p[0] = 'wwl202000460010'
+        h = sm3.sm3_hash(func.bytes_to_list(bytes(str(u_p[0]), encoding='utf-8')))[54:]
+        k = h[:2]
+        h = msg_to_int([h])
+        v = pow(h[0], a)
+
+        # Username and password detection
+        sdata = k + str(v)
         client.send(sdata.encode('utf-8'))
-        data=client.recv(65536*16).decode('UTF-8', 'ignore')
-        if data[0]==' ':
-            print("您的账户信息暂未泄露")
+        data = client.recv(65536 * 16).decode('UTF-8', 'ignore')
+        if data[0] == ' ':
+            print("未泄露")
         else:
-            data=eval(data)
-            if type(data[0]==str):
-                print("您的账户信息存在泄露风险,可能有1条账户信息已经泄露")
+            data = eval(data)
+            if type(data[0] == str):
+                print("1条信息泄露")
             else:
                 num = len(data[0])
-                print("您的账户信息存在泄露风险,可能有{}条账户信息已经泄露".format(num))
+                print("{}条信息已经泄露".format(num))
         break
     client.close()
